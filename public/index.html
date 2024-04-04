@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Dots Game</title>
+        <link rel="stylesheet" href="style.css">
+    </head>
+
+    <body>
+
+        <div id="gameControls">
+            <select id="menuDropdown">
+              <option value="start">Start Game</option>
+              <option value="restart">Restart</option>
+            </select>
+            <div id="timer">00:00</div>
+        </div>
+          
+        <div id="gameContainer"></div>
+        <canvas id="backgroundCanvas" style="position: absolute; z-index: 1;"></canvas>
+        <canvas id="gameCanvas" style="position: absolute; z-index: 2;"></canvas>
+
+        <script src="script.js"></script>
+    </body>
+</html>

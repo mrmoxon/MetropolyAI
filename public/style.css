@@ -1,0 +1,66 @@
+body, html {
+    height: 100%;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #d0d0d0; /* Optional: changes the background color of the entire page for contrast */
+  }
+  
+  #gameContainer {
+    width: 80vh; /* 80% of the viewport width */
+    height: 80vh; /* 80% of the viewport height */
+    position: relative;
+    background-color: #cbc8c8;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    /* Ensuring it doesn't exceed a landscape ratio */
+    max-width: calc(80vh * 1.78); /* 1.78 is roughly a 16:9 ratio, adjust as necessary for your preferred aspect ratio */
+    box-shadow: 0px 0px 10px rgba(0,0,0,0.5); /* Optional: adds shadow for better visibility */
+  }
+
+  #gameContainer, #gameCanvas {
+    position: absolute;
+    width: 80vh; /* Matching the game container size */
+    height: 80vh;
+  }
+  
+  #gameCanvas {
+    pointer-events: none; /* Ensures mouse events pass through to the container below */
+    margin: auto;
+    display: block; /* Ensure the canvas is displayed as a block element */
+  }  
+
+  #gameControls {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px;
+    background-color: #e0e0e0;
+  }  
+
+  #timer {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 20px;
+  }  
+  
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    position: absolute;
+    background-color: black;
+    z-index: 2;
+  }
+
+  .counter {
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgb(0, 0, 0);
+    font-size: 12px;
+    z-index: 1;
+  }
+  
+  
