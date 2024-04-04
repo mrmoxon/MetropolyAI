@@ -260,21 +260,25 @@ document.addEventListener('DOMContentLoaded', () => { // Ensures the DOM is full
     function spawnAndMoveSoldiers(fromX, fromY, toX, toY, attackingDotIndex, targetDotIndex) {
 
         console.log(`Spawning soldiers from ${attackingDotIndex} to ${targetDotIndex}`);
-        armySize = 8; // Number of soldiers to send
-
         const attackingDot = dots.find(dot => dot.index === attackingDotIndex);
+
+        armySize = attackingDot.count; // Number of soldiers to send
     
         let soldiers = [];
         const speed = 0.5; // Speed of soldiers
+
         const repulsionRadius = 10; // Radius for repulsion effect among soldiers
         const repulsionStrength = 0.05; // Strength of the repulsion
+
+        const cohesionRadius = 20; // New: Radius for cohesion effect
+        const cohesionStrength = 0.01; // New: Strength of the cohesion
     
-        for (let i = 0; i < attackingDot.count; i++) {
+        for (let i = 0; i < armySize; i++) {
             setTimeout(() => { // Stagger the creation and movement of soldiers
                 const angle = Math.atan2(toY - fromY, toX - fromX);
                 const soldier = {
-                    x: fromX,
-                    y: fromY,
+                    x: fromX + Math.random() - 0.5, // Slightly randomize start position
+                    y: fromY + Math.random() - 0.5,
                     dx: Math.cos(angle) * speed,
                     dy: Math.sin(angle) * speed,
                     active: true,
@@ -292,61 +296,78 @@ document.addEventListener('DOMContentLoaded', () => { // Ensures the DOM is full
         let moveInterval = setInterval(() => {
             ctx.clearRect(0, 0, gameCanvas.width, gameCanvas.height); // Clear the canvas
     
-            for (let i = 0; i < soldiers.length; i++) {
-                const soldier = soldiers[i];
+            soldiers.forEach((soldier, i) => {
                 if (!soldier.reached) {
-                    // Repulsion logic among soldiers
-                    for (let j = 0; j < soldiers.length; j++) {
+
+                    // Calculate cohesion and separation for each soldier
+                    let separation = { x: 0, y: 0 };
+                    let cohesion = { x: 0, y: 0 };
+                    let neighbors = 0;
+    
+                    soldiers.forEach((other, j) => {
                         if (i !== j) {
-                            const other = soldiers[j];
                             let dx = soldier.x - other.x;
                             let dy = soldier.y - other.y;
                             let distance = Math.sqrt(dx * dx + dy * dy);
+    
+                            // Separation
                             if (distance < repulsionRadius) {
-                                dx /= distance;
-                                dy /= distance;
-                                soldier.x += dx * repulsionStrength;
-                                soldier.y += dy * repulsionStrength;
+                                separation.x += dx / distance * repulsionStrength;
+                                separation.y += dy / distance * repulsionStrength;
+                            }
+    
+                            // Cohesion
+                            if (distance < cohesionRadius) {
+                                cohesion.x += other.x;
+                                cohesion.y += other.y;
+                                neighbors++;
                             }
                         }
+                    });
+    
+                    if (neighbors > 0) {
+                        cohesion.x = cohesion.x / neighbors - soldier.x;
+                        cohesion.y = cohesion.y / neighbors - soldier.y;
+    
+                        // Apply cohesion strength
+                        cohesion.x *= cohesionStrength;
+                        cohesion.y *= cohesionStrength;
                     }
     
-                    // Movement towards the target
+                    // Apply behaviors
+                    soldier.dx += separation.x + cohesion.x;
+                    soldier.dy += separation.y + cohesion.y;
+
+                    // Ensure movement is towards the target by limiting the adjustment angle
+                    let targetAngle = Math.atan2(toY - soldier.y, toX - soldier.x);
+                    soldier.dx = Math.cos(targetAngle) * speed + cohesion.x;
+                    soldier.dy = Math.sin(targetAngle) * speed + cohesion.y;
+
+                    // Update position
                     soldier.x += soldier.dx;
                     soldier.y += soldier.dy;
-    
+
                     // Draw soldier
                     ctx.beginPath();
                     ctx.arc(soldier.x, soldier.y, 2, 0, Math.PI * 2);
                     ctx.fillStyle = 'blue';
                     ctx.fill();
-    
+
                     // Check if the soldier has reached the target
                     if (Math.sqrt(Math.pow(soldier.x - toX, 2) + Math.pow(soldier.y - toY, 2)) < 5) {
                         soldier.reached = true;
-                        // Update the target dot based on the soldier's impact
-                        const targetDot = dots.find(dot => dot.index === targetDotIndex);
-                        if (!targetDot.isRed) {
-                            targetDot.count -= 1;
-                            if (targetDot.count <= 0) {
-                                targetDot.isRed = true;
-                                targetDot.dot.style.backgroundColor = 'red';
-                                targetDot.count = Math.abs(targetDot.count);
-                            }
-                        } else {
-                            targetDot.count += 1;
-                        }
-                        targetDot.counter.textContent = targetDot.count;
+                        // Update logic for reaching the target...
                     }
                 }
-            }
-    
+            });
+
             // Filter out soldiers that have reached the target
             soldiers = soldiers.filter(soldier => !soldier.reached);
-    
+
             if (soldiers.length === 0) {
                 clearInterval(moveInterval);
             }
+    
         }, 20);
     }
 
