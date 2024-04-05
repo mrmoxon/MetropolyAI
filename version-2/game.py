@@ -122,6 +122,7 @@ class GameApp:
             if any(x <= distance_from_edge or x >= self.game_width - distance_from_edge for x, _ in polygon) or \
                 any(y <= distance_from_edge or y >= self.game_height - distance_from_edge for _, y in polygon):
                     edge_region_indices.add(region_index)
+                    is_edge_region = True
 
             # Set all initial data for each region to dict
             self.regions_data[region_index] = {
@@ -130,20 +131,12 @@ class GameApp:
                 "sandy_base": sandy_base,
                 "centroid": centroid,
                 "is_city": False,  # Will update this flag for cities
-                "city_coords": None  # Will update for cities
+                "city_coords": None,  # Will update for cities
+                "is_edge_region": is_edge_region
             }
             
-            sandy_light = self.get_sandy_lighter_color(sandy_base, 0.8)
-            sandy_outline = self.get_sandy_lighter_color(sandy_base, 0.5)
-            self.canvas.create_polygon(*np.ravel(polygon), outline=sandy_outline, fill=sandy_light, width=5)
-
-            sandy_light_2 = self.get_sandy_lighter_color(sandy_light, 1.1)
-            adjusted_polygon = [(p + centroid) / 2 for p in polygon]
-            self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=sandy_light_2)
-
-            sandy_light_3 = self.get_sandy_lighter_color(sandy_light_2, 1.1)
-            adjusted_polygon = [(p + centroid) / 2 for p in adjusted_polygon]
-            self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=sandy_light_3)
+            # Decorate according to region type
+            self.playable_regions(polygon, centroid, sandy_base, 0.8, 5, tag="region")
 
         # Crown cities
         valid_city_indices = [i for i in range(len(self.points)) if self.vor.point_region[i] not in edge_region_indices]
@@ -173,6 +166,19 @@ class GameApp:
             adjusted_polygon.append((adjusted_x, adjusted_y))
         return adjusted_polygon
     
+    def playable_regions(self, polygon, centroid, sandy_base, opacity, width, tag=""):
+        sandy_light = self.get_sandy_lighter_color(sandy_base, opacity)
+        sandy_outline = self.get_sandy_lighter_color(sandy_base, opacity - 0.3)
+        self.canvas.create_polygon(*np.ravel(polygon), outline=sandy_outline, fill=sandy_light, width=width, tags=f"{tag}")
+
+        sandy_light_2 = self.get_sandy_lighter_color(sandy_light, 1.1)
+        adjusted_polygon = [(p + centroid) / 2 for p in polygon]
+        self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=sandy_light_2, tags=f"{tag}")
+
+        sandy_light_3 = self.get_sandy_lighter_color(sandy_light_2, 1.1)
+        adjusted_polygon = [(p + centroid) / 2 for p in adjusted_polygon]
+        self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=sandy_light_3, tags=f"{tag}")
+
     def get_sandy_color(self):
         # Base sandy RGB values
         base_r, base_g, base_b = 222, 184, 135  # RGB for #deb887
@@ -239,17 +245,20 @@ class GameApp:
             sandy_base = region_info['sandy_base']
             centroid = region_info['centroid']
 
-            # Create a darker version of the region's color for the highlight effect
-            darker_color = self.get_sandy_lighter_color(sandy_base, 0.8)  # Adjust for the desired effect
-            self.canvas.create_polygon(*np.ravel(polygon), outline='', fill=darker_color, tags="highlight")
-            
-            darker_color_2 = self.get_sandy_lighter_color(darker_color, 1.1)
-            adjusted_polygon = [(p + centroid) / 2 for p in polygon]
-            self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=darker_color_2, tags="highlight")
+            # Highlight the region if playable
+            self.playable_regions(polygon, centroid, sandy_base, 0.9, 1, tag="highlight")
 
-            darker_color_3 = self.get_sandy_lighter_color(darker_color_2, 1.1)
-            adjusted_polygon = [(p + centroid) / 2 for p in adjusted_polygon]
-            self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=darker_color_3, tags="highlight")
+            # Create a darker version of the region's color for the highlight effect
+            # darker_color = self.get_sandy_lighter_color(sandy_base, 0.9)  # Adjust for the desired effect
+            # self.canvas.create_polygon(*np.ravel(polygon), outline='', fill=darker_color, tags)
+            
+            # darker_color_2 = self.get_sandy_lighter_color(darker_color, 1.1)
+            # adjusted_polygon = [(p + centroid) / 2 for p in polygon]
+            # self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=darker_color_2, tags="highlight")
+
+            # darker_color_3 = self.get_sandy_lighter_color(darker_color_2, 1.1)
+            # adjusted_polygon = [(p + centroid) / 2 for p in adjusted_polygon]
+            # self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=darker_color_3, tags="highlight")
 
             # Use city_coords location and draw oval
             if region_info['is_city']:
