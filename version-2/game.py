@@ -4,7 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image, ImageTk  # For converting matplotlib plot to a tkinter compatible format
 import random
+from shapely.geometry import Polygon, MultiPoint, Point, box
+from shapely.ops import unary_union
 import time
+# from voronoi import mirror_points
 
 class GameApp:
     def __init__(self, root):
@@ -16,7 +19,7 @@ class GameApp:
         self.screen_height = self.root.winfo_screenheight()
 
         # Game window dimensions
-        self.game_height = int(self.screen_height * 0.8)
+        self.game_height = int(self.screen_height * 0.7)
         self.game_width = self.game_height  # To make the window square
         self.root.geometry(f"{int(self.game_width + 50)}x{int(self.game_height + 50)}")
 
@@ -49,6 +52,10 @@ class GameApp:
         self.game_frame = tk.Frame(self.root)
         self.game_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Timer Label - Initialize it here before starting the timer
+        self.timer_label = tk.Label(self.game_frame, text="Timer: 0")
+        self.timer_label.pack(side=tk.TOP, pady=10)  # Adjust position as needed
+
         # Restart Button
         restart_button = tk.Button(self.game_frame, text="Restart", command=self.restart_game)
         restart_button.pack(side=tk.BOTTOM, pady=10)
@@ -57,9 +64,48 @@ class GameApp:
         self.canvas.pack()
 
         self.generate_voronoi()
+        # self.build_terrain()
         self.canvas.bind("<Motion>", self.on_mouse_over)
+        self.canvas.bind_all("<MouseWheel>", self.on_vertical_scroll)  # For Windows and MacOS
+        self.canvas.bind_all("<Shift-MouseWheel>", self.on_horizontal_scroll)  # A common approach
 
         self.start_timer()
+
+    def on_vertical_scroll(self, event):
+        # Check for platform
+        if self.root.tk.call('tk', 'windowingsystem') == 'win32':
+            # For Windows, typical event.delta values are 120 or -120 per scroll step
+            scroll_steps = int(-1 * (event.delta / 20))
+        elif self.root.tk.call('tk', 'windowingsystem') == 'x11':
+            # For Linux, event.num determines the direction
+            if event.num == 4:
+                scroll_steps = -1  # Scroll up
+            else:
+                scroll_steps = 1   # Scroll down
+        else:
+            # For macOS, you might need to directly use event.delta
+            scroll_steps = int(-1 * (event.delta))
+        
+        # Apply the vertical scroll
+        self.canvas.yview_scroll(scroll_steps, "units")
+
+    def on_horizontal_scroll(self, event):
+        # Check for platform
+        if self.root.tk.call('tk', 'windowingsystem') == 'win32':
+            # For Windows, typical event.delta values are 120 or -120 per scroll step
+            scroll_steps = int(-1 * (event.delta / 20))
+        elif self.root.tk.call('tk', 'windowingsystem') == 'x11':
+            # For Linux, event.num determines the direction
+            if event.num == 6:  # Adjust based on your specific mouse configuration
+                scroll_steps = -1  # Scroll left
+            else:
+                scroll_steps = 1   # Scroll right
+        else:
+            # For macOS, you might need to directly use event.delta
+            scroll_steps = int(-1 * (event.delta))
+
+        # Apply the horizontal scroll
+        self.canvas.xview_scroll(scroll_steps, "units")
 
     def restart_game(self):
         self.start_game()
@@ -76,9 +122,35 @@ class GameApp:
         self.timer_label.config(text=f"Timer: {elapsed_time}")
         self.root.after(1000, self.update_timer)  # Update the timer every 1 second
 
+    def mirror_points(self, points, bounding_box):
+        """
+        Mirror points at the edges of the bounding box to ensure bounded Voronoi regions.
+        """
+        points_left = np.copy(points)
+        points_left[:, 0] = bounding_box[0] - (points_left[:, 0] - bounding_box[0])
+
+        points_right = np.copy(points)
+        points_right[:, 0] = bounding_box[1] + (bounding_box[1] - points_right[:, 0])
+
+        points_down = np.copy(points)
+        points_down[:, 1] = bounding_box[2] - (points_down[:, 1] - bounding_box[2])
+
+        points_up = np.copy(points)
+        points_up[:, 1] = bounding_box[3] + (bounding_box[3] - points_up[:, 1])
+
+        # Combine original and mirrored points
+        all_points = np.vstack([points, points_left, points_right, points_down, points_up])
+        
+        return all_points
+
+
+
+
+
     def generate_voronoi(self):
 
         distance_from_edge = 20
+        new_edge = 20
         buffer_distance = 40
 
         # Generate points inside the canvas, away from the edge
@@ -88,27 +160,22 @@ class GameApp:
         inner_points += distance_from_edge
 
         # Generate additional buffer points closer to the edge
-        buffer_points = np.random.rand(self.regions // 3, 2)  # One third as many buffer points
+        buffer_points = np.random.rand(self.regions // 2, 2)  # One third as many buffer points
         buffer_points[:, 0] *= (self.game_width - 2 * buffer_distance)
         buffer_points[:, 1] *= (self.game_height - 2 * buffer_distance)
         buffer_points += buffer_distance
 
         self.points = np.vstack([inner_points, buffer_points])
+        self.bounding_box = np.array([0., self.game_width, 0., self.game_height])
 
-        # Add corner points
-        corner_points = np.array([
-            [buffer_distance, buffer_distance],
-            [self.game_width - buffer_distance, buffer_distance],
-            [buffer_distance, self.game_height - buffer_distance],
-            [self.game_width - buffer_distance, self.game_height - buffer_distance]
-        ])
-        self.points = np.vstack([self.points, corner_points])
+        print("Points:", self.points)
+        print("Bounding box:", self.bounding_box)
 
+        self.points = self.mirror_points(self.points, self.bounding_box)
         self.vor = Voronoi(self.points)
-        self.regions_data = {}
-        edge_region_indices = set()
 
-        # Draw Voronoi diagram edges
+        self.regions_data = {}
+
         for region_index, region_vertices in enumerate(self.vor.regions):
 
             if not region_vertices or -1 in region_vertices:  # Skip empty or infinite regions
@@ -118,12 +185,11 @@ class GameApp:
             sandy_base = self.get_sandy_color()
             centroid = np.mean(polygon, axis=0)
 
-            # Edge regions check
-            if any(x <= distance_from_edge or x >= self.game_width - distance_from_edge for x, _ in polygon) or \
-                any(y <= distance_from_edge or y >= self.game_height - distance_from_edge for _, y in polygon):
-                    edge_region_indices.add(region_index)
-                    is_edge_region = True
-
+            # Filter out distant regions
+            if any(x < (-100) or x >= (self.game_width + 200) for x, _ in polygon) or \
+                any(y < (-100) or y >= (self.game_height + 200) for _, y in polygon):
+                    continue
+            
             # Set all initial data for each region to dict
             self.regions_data[region_index] = {
                 "vertices": region_vertices,
@@ -132,14 +198,31 @@ class GameApp:
                 "centroid": centroid,
                 "is_city": False,  # Will update this flag for cities
                 "city_coords": None,  # Will update for cities
-                "is_edge_region": is_edge_region
+                "edge": False  # Will update for edge regions
             }
+
+            # Check if the region is close to the edge
+            if any(x < new_edge or x >= (self.game_width - new_edge) for x, _ in polygon) or \
+                any(y < new_edge or y >= (self.game_height - new_edge) for _, y in polygon):
+                    self.regions_data[region_index].update({"edge": True})
+
+                    # Combine some edge regions into larger ones with neighbors
+
+                    continue
             
             # Decorate according to region type
             self.playable_regions(polygon, centroid, sandy_base, 0.8, 5, tag="region")
+            # Set edge to False
+            self.regions_data[region_index].update({"edge": False})
+
+        # Merge edge regions and create mountains and oceans
+        self.merge_regions()
+        # self.merge_regions()
 
         # Crown cities
-        valid_city_indices = [i for i in range(len(self.points)) if self.vor.point_region[i] not in edge_region_indices]
+        valid_city_indices = [
+                i for i in range(len(self.points))
+                if self.vor.point_region[i] in self.regions_data and not self.regions_data[self.vor.point_region[i]].get("edge", False)]
         self.centroids = np.random.choice(valid_city_indices, size=self.cities, replace=False)
         for i in self.centroids:
             # Ensure we have the right region index for each city
@@ -157,6 +240,156 @@ class GameApp:
                 # Add the index text
                 self.canvas.create_text(x + 10, y, text=str(region_index), font=("Arial", 8), tags="index")
 
+    def find_edge_region_neighbours(self):
+        neighbours = {}  # This will map each edge region index to its neighbours
+
+        # Iterate over all regions to find those that are marked as edge regions
+        for region_index, region_data in self.regions_data.items():
+            if region_data["edge"]:  # Ensure we're only considering edge regions
+                neighbours[region_index] = set()
+
+                # Now, find other regions that share vertices with this edge region
+                for other_index, other_data in self.regions_data.items():
+                    if other_index != region_index and other_data["edge"]:  # Avoid comparing the region to itself and ensure it's an edge region
+                        shared_vertices = set(region_data["vertices"]) & set(other_data["vertices"])
+                        
+                        # If they share at least two vertices, we consider them neighbours
+                        if len(shared_vertices) >= 2:
+                            neighbours[region_index].add(other_index)
+
+        return neighbours
+
+    def merge_polygons(self, region_index, neighbour_index):
+        # Assuming vertices are ordered correctly for Shapely to interpret
+        polygon1 = Polygon([self.vor.vertices[i] for i in self.regions_data[region_index]["vertices"]])
+        polygon2 = Polygon([self.vor.vertices[i] for i in self.regions_data[neighbour_index]["vertices"]])
+
+        # Use the union of the two polygons to merge them
+        merged_polygon_shape = polygon1.union(polygon2)
+
+        # Extract the exterior coordinates of the merged polygon
+        merged_polygon_coords = list(merged_polygon_shape.exterior.coords)
+
+        return merged_polygon_coords
+
+    def merge_regions(self):
+        # Find edge region neighbours
+        neighbours = self.find_edge_region_neighbours()
+        print("Edge region neighbours:", neighbours)
+
+        # Merge regions appropriately
+        merged_regions = set()
+        merged_polygons = {}  # Store the merged polygons to avoid recomputing them
+        for region_index, neighbour_indices in neighbours.items():
+            print("Processing region:", region_index)
+            if region_index in merged_regions:
+                print("Skipping region:", region_index, "as it has already been merged")
+                continue
+
+            valid_neighbour_found = False  # Flag to indicate if a valid neighbour has been found
+            for neighbour_index in neighbour_indices:
+                if neighbour_index in merged_regions or region_index == neighbour_index:
+                    print("Skipping neighbour:", neighbour_index, "as it has already been merged or is the same region")
+                    continue  # Skip if the neighbour has been merged or is the same region
+
+                valid_neighbour_found = True  # Valid neighbour found, set the flag to True
+                print("Valid neighbour found: Processing neighbour:", neighbour_index)
+                break  # Exit the loop since we only need one valid neighbour for merging
+
+            if valid_neighbour_found:
+                # Merge the regions
+                merged_vertices_indices = set(self.regions_data[region_index]["vertices"]) | set(self.regions_data[neighbour_index]["vertices"])
+                print("Merging regions:", region_index, neighbour_index)
+                print("Merging:", set(self.regions_data[region_index]["vertices"]) | set(self.regions_data[neighbour_index]["vertices"]))
+                
+                # Create a new polygon for the merged region
+                # merged_polygon = [self.vor.vertices[i] for i in merged_vertices_indices]
+                merged_polygon = self.merge_polygons(region_index, neighbour_index)
+                print("Merged polygon:", merged_polygon)
+
+                sandy_base = self.get_sandy_color()
+
+                # Update the region data
+                new_region_index = max(self.regions_data.keys()) + 1  # Create a new index for the merged region
+                self.regions_data[new_region_index] = {
+                    "vertices": list(merged_vertices_indices),
+                    "polygon": merged_polygon,
+                    "sandy_base": self.get_sandy_color(),  # Assuming a method to get color
+                    "centroid": None,  # Simplified calculation
+                    "is_city": False,
+                    "city_coords": None,
+                    "edge": True
+                }
+
+                merged_polygons[(region_index, neighbour_index)] = merged_polygon
+
+                # self.playable_regions(merged_polygon, new_centroid, sandy_base, 1, 5, tag="region")
+
+                # Mark original regions as merged
+                merged_regions.add(region_index)
+                merged_regions.add(neighbour_index)
+
+        # print("Merged polygons:", merged_polygons)
+        # self.playable_regions(merged_polygon, new_centroid, sandy_base, 1, 5, tag="region")
+
+        for region_index, region_data in self.regions_data.items():
+            if region_data["edge"]:
+                self.playable_regions(region_data["polygon"], region_data["centroid"], region_data["sandy_base"], 1, 5, tag="region")
+
+        # Find any lone edge regions that were not merged
+        for region_index, region_data in self.regions_data.items():
+            if region_data["edge"] and region_index not in merged_regions:
+
+                print("Lone edge region:", region_index)
+                polygon = region_data["polygon"]
+                centroid = region_data["centroid"]
+                sandy_base = region_data["sandy_base"]
+                # self.playable_regions(polygon, centroid, sandy_base, 1, 5, tag="region")
+        
+        # Remove the original regions from the canvas
+        for region_index in merged_regions:
+            print("Removing regions:", region_index)
+            del self.regions_data[region_index]
+
+    # def in_box(self):
+    #     new_edge = 5
+    #     bounding_box = box(new_edge + 2, new_edge + 2,
+    #                         self.game_width - new_edge,
+    #                         self.game_height - new_edge,
+    #                         ccw=True)
+    #     i = np.logical_and(np.logical_and(bounding_box[0] <= self.points[:, 0],
+    #                                             self.points[:, 0] <= bounding_box[1]),
+    #                             np.logical_and(bounding_box[2] <= self.points[:, 1],
+    #                                             self.points[:, 1] <= bounding_box[3]))
+        
+    #     print("i", i)
+        # return 
+
+    # def draw_bounding_box(self):
+    #     # Define the bounding box dimensions
+    #     bbox_margin = 20  # Margin from the edge of the game area
+    #     bbox_x1 = bbox_margin
+    #     bbox_y1 = bbox_margin
+    #     bbox_x2 = self.game_width - bbox_margin
+    #     bbox_y2 = self.game_height - bbox_margin
+
+    #     # Draw the bounding box
+    #     self.canvas.create_rectangle(bbox_x1, bbox_y1, bbox_x2, bbox_y2, outline='red', width=2)
+
+    def draw_overlapping_regions(self, overlapping_points):
+        for region_index, intersection in overlapping_points.items():
+            # Check if the intersection is a Polygon (it could also be a MultiPolygon)
+            if intersection.geom_type == 'Polygon':
+                exterior_coords = list(intersection.exterior.coords)
+                flat_polygon = [coord for point in exterior_coords for coord in point]
+                self.canvas.create_polygon(flat_polygon, outline='blue', fill='', width=2)
+            elif intersection.geom_type == 'MultiPolygon':
+                # Handle the case where the intersection is a MultiPolygon
+                for poly in intersection:
+                    exterior_coords = list(poly.exterior.coords)
+                    flat_polygon = [coord for point in exterior_coords for coord in point]
+                    self.canvas.create_polygon(flat_polygon, outline='blue', fill='', width=2)
+
     def adjust_polygon(self, polygon):
         adjusted_polygon = []
         for x, y in polygon:
@@ -167,6 +400,10 @@ class GameApp:
         return adjusted_polygon
     
     def playable_regions(self, polygon, centroid, sandy_base, opacity, width, tag=""):
+
+        if centroid is None:
+            centroid = np.mean(polygon, axis=0)
+
         sandy_light = self.get_sandy_lighter_color(sandy_base, opacity)
         sandy_outline = self.get_sandy_lighter_color(sandy_base, opacity - 0.3)
         self.canvas.create_polygon(*np.ravel(polygon), outline=sandy_outline, fill=sandy_light, width=width, tags=f"{tag}")
@@ -223,6 +460,8 @@ class GameApp:
 
         # Iterate through regions_data to find the closest centroid
         for region_index, region_info in self.regions_data.items():
+            if region_info['centroid'] is None:
+                continue
             centroid = region_info['centroid']
             distance = np.sqrt((centroid[0] - x) ** 2 + (centroid[1] - y) ** 2)
             if distance < min_distance:
@@ -247,18 +486,6 @@ class GameApp:
 
             # Highlight the region if playable
             self.playable_regions(polygon, centroid, sandy_base, 0.9, 1, tag="highlight")
-
-            # Create a darker version of the region's color for the highlight effect
-            # darker_color = self.get_sandy_lighter_color(sandy_base, 0.9)  # Adjust for the desired effect
-            # self.canvas.create_polygon(*np.ravel(polygon), outline='', fill=darker_color, tags)
-            
-            # darker_color_2 = self.get_sandy_lighter_color(darker_color, 1.1)
-            # adjusted_polygon = [(p + centroid) / 2 for p in polygon]
-            # self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=darker_color_2, tags="highlight")
-
-            # darker_color_3 = self.get_sandy_lighter_color(darker_color_2, 1.1)
-            # adjusted_polygon = [(p + centroid) / 2 for p in adjusted_polygon]
-            # self.canvas.create_polygon(*np.ravel(adjusted_polygon), outline='', fill=darker_color_3, tags="highlight")
 
             # Use city_coords location and draw oval
             if region_info['is_city']:
