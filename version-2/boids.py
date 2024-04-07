@@ -33,6 +33,11 @@ class GameApp:
         self.vor = None
         self.centroids = None
 
+        self.boids = []
+        self.boid_speed = 5
+        self.perception_radius = 50
+        self.max_acceleration = 0.5
+
         self.regions = 120
         self.cities = 80
 
@@ -66,6 +71,14 @@ class GameApp:
         self.generate_voronoi()
         # self.build_terrain()
         self.canvas.bind("<Motion>", self.on_mouse_over)
+        self.canvas.bind("<Button-1>", self.on_mouse_click)
+
+        # Bind the on_mouse_down function to the ButtonPress event
+        # self.canvas.bind("<ButtonPress>", self.on_mouse_down)
+        self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
+        # Bind the on_mouse_up function to the ButtonRelease event
+        self.canvas.bind("<ButtonRelease>", self.on_mouse_up)
+        
         self.canvas.bind_all("<MouseWheel>", self.on_vertical_scroll)  # For Windows and MacOS
         self.canvas.bind_all("<Shift-MouseWheel>", self.on_horizontal_scroll)  # A common approach
 
@@ -143,10 +156,6 @@ class GameApp:
         
         return all_points
 
-
-
-
-
     def generate_voronoi(self):
 
         distance_from_edge = 20
@@ -207,17 +216,13 @@ class GameApp:
                     self.regions_data[region_index].update({"edge": True})
 
                     # Combine some edge regions into larger ones with neighbors
-
+                    self.playable_regions(polygon, centroid, sandy_base, 0.8, 5, tag="region")
                     continue
             
             # Decorate according to region type
             self.playable_regions(polygon, centroid, sandy_base, 0.8, 5, tag="region")
             # Set edge to False
             self.regions_data[region_index].update({"edge": False})
-
-        # Merge edge regions and create mountains and oceans
-        self.merge_regions()
-        # self.merge_regions()
 
         # Crown cities
         valid_city_indices = [
@@ -240,140 +245,6 @@ class GameApp:
                 # Add the index text
                 self.canvas.create_text(x + 10, y, text=str(region_index), font=("Arial", 8), tags="index")
 
-    def find_edge_region_neighbours(self):
-        neighbours = {}  # This will map each edge region index to its neighbours
-
-        # Iterate over all regions to find those that are marked as edge regions
-        for region_index, region_data in self.regions_data.items():
-            if region_data["edge"]:  # Ensure we're only considering edge regions
-                neighbours[region_index] = set()
-
-                # Now, find other regions that share vertices with this edge region
-                for other_index, other_data in self.regions_data.items():
-                    if other_index != region_index and other_data["edge"]:  # Avoid comparing the region to itself and ensure it's an edge region
-                        shared_vertices = set(region_data["vertices"]) & set(other_data["vertices"])
-                        
-                        # If they share at least two vertices, we consider them neighbours
-                        if len(shared_vertices) >= 2:
-                            neighbours[region_index].add(other_index)
-
-        return neighbours
-
-    def merge_polygons(self, region_index, neighbour_index):
-        # Assuming vertices are ordered correctly for Shapely to interpret
-        polygon1 = Polygon([self.vor.vertices[i] for i in self.regions_data[region_index]["vertices"]])
-        polygon2 = Polygon([self.vor.vertices[i] for i in self.regions_data[neighbour_index]["vertices"]])
-
-        # Use the union of the two polygons to merge them
-        merged_polygon_shape = polygon1.union(polygon2)
-
-        # Extract the exterior coordinates of the merged polygon
-        merged_polygon_coords = list(merged_polygon_shape.exterior.coords)
-
-        return merged_polygon_coords
-
-    def merge_regions(self):
-        # Find edge region neighbours
-        neighbours = self.find_edge_region_neighbours()
-        print("Edge region neighbours:", neighbours)
-
-        # Merge regions appropriately
-        merged_regions = set()
-        merged_polygons = {}  # Store the merged polygons to avoid recomputing them
-        for region_index, neighbour_indices in neighbours.items():
-            print("Processing region:", region_index)
-            if region_index in merged_regions:
-                print("Skipping region:", region_index, "as it has already been merged")
-                continue
-
-            valid_neighbour_found = False  # Flag to indicate if a valid neighbour has been found
-            for neighbour_index in neighbour_indices:
-                if neighbour_index in merged_regions or region_index == neighbour_index:
-                    print("Skipping neighbour:", neighbour_index, "as it has already been merged or is the same region")
-                    continue  # Skip if the neighbour has been merged or is the same region
-
-                valid_neighbour_found = True  # Valid neighbour found, set the flag to True
-                print("Valid neighbour found: Processing neighbour:", neighbour_index)
-                break  # Exit the loop since we only need one valid neighbour for merging
-
-            if valid_neighbour_found:
-                # Merge the regions
-                merged_vertices_indices = set(self.regions_data[region_index]["vertices"]) | set(self.regions_data[neighbour_index]["vertices"])
-                print("Merging regions:", region_index, neighbour_index)
-                print("Merging:", set(self.regions_data[region_index]["vertices"]) | set(self.regions_data[neighbour_index]["vertices"]))
-                
-                # Create a new polygon for the merged region
-                # merged_polygon = [self.vor.vertices[i] for i in merged_vertices_indices]
-                merged_polygon = self.merge_polygons(region_index, neighbour_index)
-                print("Merged polygon:", merged_polygon)
-
-                sandy_base = self.get_sandy_color()
-
-                # Update the region data
-                new_region_index = max(self.regions_data.keys()) + 1  # Create a new index for the merged region
-                self.regions_data[new_region_index] = {
-                    "vertices": list(merged_vertices_indices),
-                    "polygon": merged_polygon,
-                    "sandy_base": self.get_sandy_color(),  # Assuming a method to get color
-                    "centroid": None,  # Simplified calculation
-                    "is_city": False,
-                    "city_coords": None,
-                    "edge": True
-                }
-
-                merged_polygons[(region_index, neighbour_index)] = merged_polygon
-
-                # self.playable_regions(merged_polygon, new_centroid, sandy_base, 1, 5, tag="region")
-
-                # Mark original regions as merged
-                merged_regions.add(region_index)
-                merged_regions.add(neighbour_index)
-
-        # print("Merged polygons:", merged_polygons)
-        # self.playable_regions(merged_polygon, new_centroid, sandy_base, 1, 5, tag="region")
-
-        for region_index, region_data in self.regions_data.items():
-            if region_data["edge"]:
-                self.playable_regions(region_data["polygon"], region_data["centroid"], region_data["sandy_base"], 1, 5, tag="region")
-
-        # Find any lone edge regions that were not merged
-        for region_index, region_data in self.regions_data.items():
-            if region_data["edge"] and region_index not in merged_regions:
-
-                print("Lone edge region:", region_index)
-                polygon = region_data["polygon"]
-                centroid = region_data["centroid"]
-                sandy_base = region_data["sandy_base"]
-                # self.playable_regions(polygon, centroid, sandy_base, 1, 5, tag="region")
-        
-        # Remove the original regions from the canvas
-        for region_index in merged_regions:
-            print("Removing regions:", region_index)
-            del self.regions_data[region_index]
-
-    def draw_overlapping_regions(self, overlapping_points):
-        for region_index, intersection in overlapping_points.items():
-            # Check if the intersection is a Polygon (it could also be a MultiPolygon)
-            if intersection.geom_type == 'Polygon':
-                exterior_coords = list(intersection.exterior.coords)
-                flat_polygon = [coord for point in exterior_coords for coord in point]
-                self.canvas.create_polygon(flat_polygon, outline='blue', fill='', width=2)
-            elif intersection.geom_type == 'MultiPolygon':
-                # Handle the case where the intersection is a MultiPolygon
-                for poly in intersection:
-                    exterior_coords = list(poly.exterior.coords)
-                    flat_polygon = [coord for point in exterior_coords for coord in point]
-                    self.canvas.create_polygon(flat_polygon, outline='blue', fill='', width=2)
-
-    def adjust_polygon(self, polygon):
-        adjusted_polygon = []
-        for x, y in polygon:
-            # Adjust x and y coordinates to create a border around the canvas
-            adjusted_x = min(max(x, 10), self.game_width - 5)
-            adjusted_y = min(max(y, 10), self.game_height - 5)
-            adjusted_polygon.append((adjusted_x, adjusted_y))
-        return adjusted_polygon
-    
     def playable_regions(self, polygon, centroid, sandy_base, opacity, width, tag=""):
 
         if centroid is None:
@@ -467,6 +338,191 @@ class GameApp:
                 x, y = region_info['city_coords']
                 self.canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill='black', tags="highlight")
                 self.canvas.create_text(x + 10, y, text=str(region_index), font=("Arial", 8), tags="index")
+
+    def on_mouse_click(self, event):
+        # x, y = event.x, event.y
+        # min_distance = float('inf')
+        # closest_region_index = None
+
+        # # Iterate through regions_data to find the closest centroid
+        # for region_index, region_info in self.regions_data.items():
+        #     if region_info['centroid'] is None:
+        #         continue
+        #     centroid = region_info['centroid']
+        #     distance = np.sqrt((centroid[0] - x) ** 2 + (centroid[1] - y) ** 2)
+        #     if distance < min_distance:
+        #         min_distance = distance
+        #         closest_region_index = region_index
+
+        # # If a region is close enough, highlight its region
+        # if closest_region_index is not None:
+        #     print(f"Clicked on region {closest_region_index}")
+        x, y = event.x, event.y
+        self.start_region_index = self.identify_region(x, y)
+        # print("Start region index:", self.start_region_index)
+
+    def on_mouse_drag(self, event):
+        x, y = event.x, event.y
+        current_region = self.identify_region(x, y)
+        # print(f"Current region: {current_region}, Mouse down at ({x}, {y})")
+
+    def on_mouse_up(self, event):
+        x, y = event.x, event.y
+        end_region_index = self.identify_region(x, y)
+        if self.start_region_index is not None and end_region_index is not None:
+            print(f"Clicked on region {self.start_region_index} initially, and ended on region {end_region_index}")
+
+            # Check if start region and end region have citires
+            if self.regions_data[self.start_region_index]['is_city'] and self.regions_data[end_region_index]['is_city']:
+                self.send_boids(self.start_region_index, end_region_index)
+
+            else:
+                print("Start and/or end region does not have a city")
+
+        self.start_region_index = None
+
+    def identify_region(self, x, y):
+        min_distance = float('inf')
+        closest_region_index = None
+
+        # Iterate through regions_data to find the closest centroid
+        for region_index, region_info in self.regions_data.items():
+            if region_info['centroid'] is None:
+                continue
+            centroid = region_info['centroid']
+            distance = np.sqrt((centroid[0] - x) ** 2 + (centroid[1] - y) ** 2)
+            if distance < min_distance:
+                min_distance = distance
+                closest_region_index = region_index
+
+        # If a region is close enough, return its index
+        return closest_region_index
+
+    def send_boids(self, start, end):
+        start = self.regions_data[start]['city_coords']
+        start = np.array(start)
+        end = self.regions_data[end]['city_coords']
+        end = np.array(end)
+        print(f"Sending boids from {start} to {end}")
+
+        # Initialize boids with unique IDs based on current active boids
+        current_boid_count = len([boid for boid in self.boids if boid.active])
+        new_boids = [Boid(start, boid_id=current_boid_count + i) for i in range(10)]
+        self.boids.extend(new_boids)
+
+        for boid in new_boids:
+            boid.graphic_id = self.canvas.create_oval(
+                boid.position[0] - 2, boid.position[1] - 2, 
+                boid.position[0] + 2, boid.position[1] + 2, 
+                fill='black', tags=f"boid_{boid.id}"
+            )
+
+        # Start updating boids for the first time
+        self.update_boids_continuously(end)
+
+    def update_boids_continuously(self, end):
+
+        active_boids = [boid for boid in self.boids if boid.active]
+        if not active_boids:  # No more active boids to update
+            return
+
+        self.update_boids(active_boids, end)
+
+        for boid in active_boids:
+            if np.linalg.norm(boid.position - end) < 10:
+                boid.active = False  # Deactivate boid
+                self.canvas.delete(boid.graphic_id)  # Optionally, remove the boid's visual representation
+            else:
+                self.move_boid(boid)
+
+        # Schedule the next update
+        self.root.after(100, lambda: self.update_boids_continuously(end))
+
+    def update_boids(self, boids, end, cohesion_strength=0.05, alignment_strength=0.05, separation_strength=0.03):
+        for boid in boids:
+            acceleration = np.zeros(2)
+
+            nearby_boids = [other for other in boids if np.linalg.norm(boid.position - other.position) < self.perception_radius and other != boid]
+
+            # Cohesion: Move towards the average position of nearby boids
+            cohesion_vector = np.zeros(2)
+            if nearby_boids:
+                average_position = np.mean([other.position for other in nearby_boids], axis=0)
+                cohesion_vector = (average_position - boid.position) * cohesion_strength
+
+            # Cohesion - Move towards the average position of nearby boids
+            cohesion_center = np.mean([other.position for other in boids if np.linalg.norm(boid.position - other.position) < self.perception_radius and other != boid], axis=0, keepdims=True)
+            if len(cohesion_center) > 0:
+                cohesion_vector = self.normalize(cohesion_center - boid.position) * self.boid_speed - boid.velocity
+                acceleration += self.limit_magnitude(cohesion_vector, self.max_acceleration)
+
+            # Alignment: Align velocity with the average velocity of nearby boids
+            average_velocity = np.mean([other.velocity for other in boids if np.linalg.norm(boid.position - other.position) < self.perception_radius and other != boid], axis=0, keepdims=True)
+            if len(average_velocity) > 0:
+                alignment_vector = self.normalize(average_velocity) * self.boid_speed - boid.velocity
+                acceleration += self.limit_magnitude(alignment_vector, self.max_acceleration)
+
+            # Separation: Move away from nearby boids to avoid crowding
+            separation_vector = np.sum([(boid.position - other.position) / np.linalg.norm(boid.position - other.position)**2 for other in boids if np.linalg.norm(boid.position - other.position) < self.perception_radius and other != boid], axis=0)
+            if np.linalg.norm(separation_vector) > 0:
+                acceleration += self.limit_magnitude(self.normalize(separation_vector) * self.boid_speed, self.max_acceleration)
+
+            # Goal direction
+            goal_direction = self.normalize(end - boid.position) * self.boid_speed
+            acceleration += self.limit_magnitude(goal_direction - boid.velocity, self.max_acceleration)
+
+            # Apply acceleration and limit speed
+            boid.velocity += acceleration
+            boid.velocity = self.limit_magnitude(boid.velocity, self.boid_speed)
+            boid.position += boid.velocity
+
+            # Adjust velocity based on the behaviors
+            move_vector = cohesion_vector + alignment_vector + separation_vector
+
+            # Calculate direction towards the goal and add to move vector
+            to_goal = (end - boid.position) * 0.01
+            move_vector += to_goal
+
+            # Normalize and apply speed
+            if np.linalg.norm(move_vector) > 0:
+                move_vector = move_vector / np.linalg.norm(move_vector) * self.boid_speed
+
+            boid.velocity = move_vector
+            boid.position += boid.velocity
+
+    def calculate_cohesion(self, boids):
+        """Calculate the average position of the boids to steer towards for cohesion."""
+        if not boids:
+            return np.zeros(2)
+        average_position = np.mean([boid.position for boid in boids], axis=0)
+        return average_position
+
+    def move_boid(self, boid):
+        dx = boid.velocity[0]
+        dy = boid.velocity[1]
+        self.canvas.move(boid.graphic_id, dx, dy)  # Move the boid's oval
+
+    def normalize(self, vector):
+        norm = np.linalg.norm(vector)
+        if norm == 0: 
+            return vector
+        return vector / norm
+
+    def limit_magnitude(self, vector, max_magnitude):
+        magnitude = np.linalg.norm(vector)
+        if magnitude > max_magnitude:
+            return vector / magnitude * max_magnitude
+        return vector
+
+class Boid:
+    def __init__(self, position, boid_id):
+        self.id = boid_id
+
+        self.position = np.array(position)
+        self.velocity = np.zeros(2)  # Start with zero velocity for simplicity
+        self.graphic_id = None  # To store the canvas ID of the boid's oval
+
+        self.active = True
 
 if __name__ == "__main__":
     root = tk.Tk()
